@@ -44,6 +44,7 @@
 #include <fstream>
 #include <string>
 #include "opencv2/opencv_modules.hpp"
+#include "opencv2/opencv.hpp"
 #include <opencv2/core/utility.hpp>
 #include "opencv2/imgcodecs.hpp"
 #include "opencv2/highgui.hpp"
@@ -57,6 +58,8 @@
 #include "opencv2/stitching/detail/seam_finders.hpp"
 #include "opencv2/stitching/detail/warpers.hpp"
 #include "opencv2/stitching/warpers.hpp"
+#include "opencv2/features2d.hpp"
+
 #include <glob.h>
 
 #define ENABLE_LOG 1
@@ -66,6 +69,7 @@
 using namespace std;
 using namespace cv;
 using namespace cv::detail;
+
 
 static void printUsage()
 {
@@ -374,6 +378,7 @@ int main(int argc, char* argv[])
     cv::setBreakOnError(true);
 #endif
 
+    // get input parameter
     int retval = parseCmdArgs(argc, argv);
     if (retval)
         return retval;
@@ -386,14 +391,19 @@ int main(int argc, char* argv[])
         return -1;
     }
 
+    // set scale parameter
     double work_scale = 1, seam_scale = 1, compose_scale = 1;
+    // default don't use this scale
     bool is_work_scale_set = false, is_seam_scale_set = false, is_compose_scale_set = false;
 
+
+
+    // find feature
     LOGLN("Finding features...");
 #if ENABLE_LOG
     int64 t = getTickCount();
 #endif
-
+//
     Ptr<FeaturesFinder> finder;
     if (features_type == "surf")
     {
@@ -414,16 +424,26 @@ int main(int argc, char* argv[])
         return -1;
     }
 
+
+//    Ptr<Feature2D> sift = SIFT::create();
     Mat full_img, img;
+    // vector features of each image
     vector<ImageFeatures> features(num_images);
+    // vector features save image
     vector<Mat> images(num_images);
+    // vector save each image size
     vector<Size> full_img_sizes(num_images);
+    // for resize the image
     double seam_work_aspect = 1;
 
+    // resize and get features of each images
     for (int i = 0; i < num_images; ++i)
     {
+        // print image name
         std::cout<<img_names[i];
+
         full_img = imread(img_names[i]);
+        // get size of the images
         full_img_sizes[i] = full_img.size();
 
         if (full_img.empty())
@@ -431,14 +451,17 @@ int main(int argc, char* argv[])
             LOGLN("Can't open image " << img_names[i]);
             return -1;
         }
+        // default setting is 0.6
         if (work_megapix < 0)
         {
             img = full_img;
             work_scale = 1;
             is_work_scale_set = true;
         }
+
         else
         {
+            // if the work_scale is not set.
             if (!is_work_scale_set)
             {
                 work_scale = min(1.0, sqrt(work_megapix * 1e6 / full_img.size().area()));
@@ -460,13 +483,16 @@ int main(int argc, char* argv[])
         resize(full_img, img, Size(), seam_scale, seam_scale);
         images[i] = img.clone();
     }
-
+    // release the unused stuff
     finder->collectGarbage();
     full_img.release();
     img.release();
 
     LOGLN("Finding features, time: " << ((getTickCount() - t) / getTickFrequency()) << " sec");
 
+
+
+    // pairwise matching
     LOG("Pairwise matching");
 #if ENABLE_LOG
     t = getTickCount();
@@ -487,7 +513,7 @@ int main(int argc, char* argv[])
 
     LOGLN("Pairwise matching, time: " << ((getTickCount() - t) / getTickFrequency()) << " sec");
 
-    // Check if we should save matches graph
+    // Check if we should save matches graph， save_graph default is zero
     if (save_graph)
     {
         LOGLN("Saving matches graph...");
@@ -495,7 +521,7 @@ int main(int argc, char* argv[])
         f << matchesGraphAsString(img_names, pairwise_matches, conf_thresh);
     }
 
-    // Leave only images we are sure are from the same panorama
+    // Leave only images we are sure are from the same panorama，将高置信区间的所有匹配并到一个集合中
     vector<int> indices = leaveBiggestComponent(features, pairwise_matches, conf_thresh);
     vector<Mat> img_subset;
     vector<String> img_names_subset;
@@ -847,6 +873,7 @@ int main(int argc, char* argv[])
             {
                 fixedFileName = "fixed_" + String(img_names[img_idx]).substr(pos_s + 1, String(img_names[img_idx]).length() - pos_s);
             }
+            imwrite("/Users/chenyu/123.jpg", timelapser->getDst());
             imwrite("/Users/chenyu/123.jpg", timelapser->getDst());
         }
         else
