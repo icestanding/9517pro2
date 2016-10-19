@@ -1,44 +1,4 @@
-//
-//  IMPORTANT: READ BEFORE DOWNLOADING, COPYING, INSTALLING OR USING.
-//
-//  By downloading, copying, installing or using the software you agree to this license.
-//  If you do not agree to this license, do not download, install,
-//  copy or use the software.
-//
-//
-//                          License Agreement
-//                For Open Source Computer Vision Library
-//
-// Copyright (C) 2000-2008, Intel Corporation, all rights reserved.
-// Copyright (C) 2009, Willow Garage Inc., all rights reserved.
-// Third party copyrights are property of their respective owners.
-//
-// Redistribution and use in source and binary forms, with or without modification,
-// are permitted provided that the following conditions are met:
-//
-//   * Redistribution's of source code must retain the above copyright notice,
-//     this list of conditions and the following disclaimer.
-//
-//   * Redistribution's in binary form must reproduce the above copyright notice,
-//     this list of conditions and the following disclaimer in the documentation
-//     and/or other materials provided with the distribution.
-//
-//   * The name of the copyright holders may not be used to endorse or promote products
-//     derived from this software without specific prior written permission.
-//
-// This software is provided by the copyright holders and contributors "as is" and
-// any express or implied warranties, including, but not limited to, the implied
-// warranties of merchantability and fitness for a particular purpose are disclaimed.
-// In no event shall the Intel Corporation or contributors be liable for any direct,
-// indirect, incidental, special, exemplary, or consequential damages
-// (including, but not limited to, procurement of substitute goods or services;
-// loss of use, data, or profits; or business interruption) however caused
-// and on any theory of liability, whether in contract, strict liability,
-// or tort (including negligence or otherwise) arising in any way out of
-// the use of this software, even if advised of the possibility of such damage.
-//
-//
-//M*/
+
 
 #include <iostream>
 #include <fstream>
@@ -69,7 +29,7 @@
 using namespace std;
 using namespace cv;
 using namespace cv::detail;
-
+//using namespace cv::xfeatures2d;
 
 static void printUsage()
 {
@@ -156,7 +116,7 @@ int blend_type = Blender::MULTI_BAND;
 int timelapse_type = Timelapser::AS_IS;
 float blend_strength = 5;
 string result_name = "/Users/chenyu/result.jpg";
-bool timelapse = true;
+bool timelapse = false;
 int range_width = -1;
 
 
@@ -403,29 +363,10 @@ int main(int argc, char* argv[])
 #if ENABLE_LOG
     int64 t = getTickCount();
 #endif
-//
+
+    // define feature finder use orb as feature finder
     Ptr<FeaturesFinder> finder;
-    if (features_type == "surf")
-    {
-#ifdef HAVE_OPENCV_XFEATURES2D
-        if (try_cuda && cuda::getCudaEnabledDeviceCount() > 0)
-            finder = makePtr<SurfFeaturesFinderGpu>();
-        else
-#endif
-        finder = makePtr<SurfFeaturesFinder>();
-    }
-    else if (features_type == "orb")
-    {
-        finder = makePtr<OrbFeaturesFinder>();
-    }
-    else
-    {
-        cout << "Unknown 2D features type: '" << features_type << "'.\n";
-        return -1;
-    }
-
-
-//    Ptr<Feature2D> sift = SIFT::create();
+    finder = makePtr<OrbFeaturesFinder>();
     Mat full_img, img;
     // vector features of each image
     vector<ImageFeatures> features(num_images);
@@ -479,7 +420,6 @@ int main(int argc, char* argv[])
         (*finder)(img, features[i]);
         features[i].img_idx = i;
         LOGLN("Features in image #" << i+1 << ": " << features[i].keypoints.size());
-
         resize(full_img, img, Size(), seam_scale, seam_scale);
         images[i] = img.clone();
     }
@@ -492,7 +432,7 @@ int main(int argc, char* argv[])
 
 
 
-    // pairwise matching
+    // pairwise matching, find best match
     LOG("Pairwise matching");
 #if ENABLE_LOG
     t = getTickCount();
@@ -514,14 +454,15 @@ int main(int argc, char* argv[])
     LOGLN("Pairwise matching, time: " << ((getTickCount() - t) / getTickFrequency()) << " sec");
 
     // Check if we should save matches graph， save_graph default is zero
-    if (save_graph)
-    {
-        LOGLN("Saving matches graph...");
-        ofstream f(save_graph_to.c_str());
-        f << matchesGraphAsString(img_names, pairwise_matches, conf_thresh);
-    }
+//    if (save_graph)
+//    {
+//        LOGLN("Saving matches graph...");
+//        ofstream f(save_graph_to.c_str());
+//        f << matchesGraphAsString(img_names, pairwise_matches, conf_thresh);
+//    }
 
     // Leave only images we are sure are from the same panorama，将高置信区间的所有匹配并到一个集合中
+    // get image index
     vector<int> indices = leaveBiggestComponent(features, pairwise_matches, conf_thresh);
     vector<Mat> img_subset;
     vector<String> img_names_subset;
@@ -533,6 +474,7 @@ int main(int argc, char* argv[])
         full_img_sizes_subset.push_back(full_img_sizes[indices[i]]);
     }
 
+    // assignment subset to images;
     images = img_subset;
     img_names = img_names_subset;
     full_img_sizes = full_img_sizes_subset;
@@ -545,6 +487,7 @@ int main(int argc, char* argv[])
         return -1;
     }
 
+    // according to the pariwise matches computer camera parameter
     HomographyBasedEstimator estimator;
     vector<CameraParams> cameras;
     if (!estimator(features, pairwise_matches, cameras))
@@ -561,6 +504,10 @@ int main(int argc, char* argv[])
         LOGLN("Initial intrinsics #" << indices[i]+1 << ":\n" << cameras[i].K());
     }
 
+
+
+    // do bundle adjustment
+    std::cout<<"start bundle adjustment" <<std::endl;
     Ptr<detail::BundleAdjusterBase> adjuster;
     if (ba_cost_func == "reproj") adjuster = makePtr<detail::BundleAdjusterReproj>();
     else if (ba_cost_func == "ray") adjuster = makePtr<detail::BundleAdjusterRay>();
@@ -584,7 +531,7 @@ int main(int argc, char* argv[])
     }
 
     // Find median focal length
-
+    std::cout<<"find foccal length" <<std::endl;
     vector<double> focals;
     for (size_t i = 0; i < cameras.size(); ++i)
     {
@@ -762,7 +709,6 @@ int main(int argc, char* argv[])
     for (int img_idx = 0; img_idx < num_images; ++img_idx)
     {
         LOGLN("Compositing image #" << indices[img_idx]+1);
-
         // Read image and resize it if necessary
         full_img = imread(img_names[img_idx]);
         if (!is_compose_scale_set)
@@ -877,15 +823,22 @@ int main(int argc, char* argv[])
             imwrite("/Users/chenyu/123.jpg", timelapser->getDst());
         }
         else
-        {
+        {      try {
                 blender->feed(img_warped_s, mask_warped, corners[img_idx]);
+                }
+            catch(...) {
+                std::cout<<"bug";
+                continue;
+            }
 
         }
     }
 
     if (!timelapse)
     {
+
         Mat result, result_mask;
+        std::cout<<"time to blend";
         blender->blend(result, result_mask);
 
         LOGLN("Compositing, time: " << ((getTickCount() - t) / getTickFrequency()) << " sec");
